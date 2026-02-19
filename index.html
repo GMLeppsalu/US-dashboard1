@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>US Tax Collection Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+:root {
+  --bg-primary: #0a0e17;
+  --bg-secondary: #111827;
+  --bg-card: #1a2234;
+  --bg-card-hover: #1f2a40;
+  --border: #2a3a52;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent-blue: #3b82f6;
+  --accent-cyan: #06b6d4;
+  --positive: #22c55e;
+  --negative: #ef4444;
+  --warning: #f59e0b;
+  --cat-individual: #3b82f6;
+  --cat-corporate: #f59e0b;
+  --cat-social: #22c55e;
+  --cat-excise: #a855f7;
+  --cat-customs: #06b6d4;
+  --cat-estate: #ec4899;
+  --cat-misc: #6b7280;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-left h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+.header-left .subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.refresh-btn {
+  background: var(--accent-blue);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.refresh-btn:hover { opacity: 0.85; }
+.refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.main { padding: 20px 24px; max-width: 1800px; margin: 0 auto; }
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 32px 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-title:first-child { margin-top: 0; }
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  position: relative;
+}
+
+.card-full { grid-column: 1 / -1; }
+
+.card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.chart-container {
+  position: relative;
+  width: 100%;
+  min-height: 320px;
+}
+
+.chart-container-lg {
+  min-height: 420px;
+}
+
+.chart-container canvas {
+  width: 100% !important;
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  border-radius: 8px;
+  z-index: 10;
+}
+
+.spinner {
+  width: 32px; height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-text {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.error-msg {
+  color: var(--negative);
+  font-size: 12px;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+/* Summary table */
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.summary-table th {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.summary-table th.right, .summary-table td.right {
+  text-align: right;
+}
+
+.summary-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+.summary-table tr:hover { background: var(--bg-card-hover); }
+
+.cat-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.val-pos { color: var(--positive); }
+.val-neg { color: var(--negative); }
+
+/* Summary cards */
+.summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.summary-card .card-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.summary-card .card-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.summary-card .card-sub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.summary-card .card-delta {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.arrow-up::before { content: "\25B2 "; }
+.arrow-down::before { content: "\25BC "; }
+
+/* Interpretation guide */
+.interp-toggle {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.interp-header {
+  padding: 12px 16px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.interp-header:hover { background: var(--bg-card-hover); }
+
+.interp-body {
+  display: none;
+  padding: 0 16px 16px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.interp-body.open { display: block; }
+
+.interp-body ul { padding-left: 18px; }
+.interp-body li { margin-bottom: 6px; }
+.interp-body strong { color: var(--text-primary); }
+
+.chevron {
+  transition: transform 0.2s;
+  font-size: 10px;
+}
+
+.chevron.open { transform: rotate(180deg); }
+
+/* Footnotes */
+.footnotes {
+  margin-top: 32px;
+  padding: 16px;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  line-height: 1.7;
+}
+
+@media (max-width: 1200px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 768px) {
+  .header { padding: 12px 16px; }
+  .main { padding: 12px 16px; }
+  .grid-3, .grid-4 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>US Tax Collection Monitor</h1>
+    <div class="subtitle">Federal Receipts &amp; Tax Deposit Tracker &mdash; Source: US Treasury Fiscal Data API</div>
+  </div>
+  <div class="header-right">
+    <span id="lastRefresh">Loading...</span>
+    <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">Refresh Data</button>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- Section 1: Monthly Receipts -->
+  <div class="section-title">Section 1: Monthly Receipts by Category (MTS)</div>
+
+  <!-- Chart 1: YoY % Change -->
+  <div class="card card-full" style="margin-bottom:16px;">
+    <div class="card-title">Chart 1: YoY % Change in Monthly Receipts by Tax Category</div>
+    <div class="chart-container chart-container-lg" id="chart1Wrap">
+      <div class="loading-overlay" id="chart1Loading"><div class="spinner"></div><div class="loading-text">Loading MTS data...</div></div>
+      <canvas id="chart1"></canvas>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Chart 2: Stacked Bar -->
+    <div class="card">
+      <div class="card-title">Chart 2: Monthly Receipts Composition ($B)</div>
+      <div class="chart-container" id="chart2Wrap">
+        <div class="loading-overlay" id="chart2Loading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+        <canvas id="chart2"></canvas>
+      </div>
+    </div>
+    <!-- Chart 3: FYTD Comparison -->
+    <div class="card">
+      <div class="card-title">Chart 3: FYTD Cumulative Receipts — Current vs Prior Year</div>
+      <div class="chart-container" id="chart3Wrap">
+        <div class="loading-overlay" id="chart3Loading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+        <canvas id="chart3"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary Table -->
+  <div class="card card-full" style="margin-bottom:16px;">
+    <div class="card-title">Monthly Receipts Summary</div>
+    <div id="summaryTableWrap">
+      <div class="loading-overlay" id="summaryTableLoading" style="position:relative;min-height:100px;"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+    </div>
+  </div>
+
+  <!-- Section 2: Daily Tracker -->
+  <div class="section-title">Section 2: Daily Tax Deposit Tracker (DTS)</div>
+
+  <div id="dtsCards" class="grid-4" style="margin-bottom:16px;">
+    <!-- Filled by JS -->
+  </div>
+
+  <div class="grid-2">
+    <!-- Chart 4 -->
+    <div class="card">
+      <div class="card-title">Chart 4: Rolling 30-Day YoY % Change — Withheld Taxes</div>
+      <div class="chart-container" id="chart4Wrap">
+        <div class="loading-overlay" id="chart4Loading"><div class="spinner"></div><div class="loading-text">Loading DTS data...</div></div>
+        <canvas id="chart4"></canvas>
+      </div>
+    </div>
+    <!-- Chart 5 -->
+    <div class="card">
+      <div class="card-title">Chart 5: MTD Cumulative Deposits — Current vs Prior Year</div>
+      <div class="chart-container" id="chart5Wrap">
+        <div class="loading-overlay" id="chart5Loading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+        <canvas id="chart5"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 3: Analytical -->
+  <div class="section-title">Section 3: Analytical Views</div>
+
+  <div class="grid-2">
+    <!-- Chart 6 -->
+    <div class="card">
+      <div class="card-title">Chart 6: Individual Income — Withheld vs Non-Withheld (Monthly, YoY %)</div>
+      <div class="chart-container" id="chart6Wrap">
+        <div class="loading-overlay" id="chart6Loading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+        <canvas id="chart6"></canvas>
+      </div>
+    </div>
+    <!-- Chart 7 -->
+    <div class="card">
+      <div class="card-title">Chart 7: Corporate Tax Collections — Monthly Trend</div>
+      <div class="chart-container" id="chart7Wrap">
+        <div class="loading-overlay" id="chart7Loading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+        <canvas id="chart7"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interpretation Guide -->
+  <div class="interp-toggle">
+    <div class="interp-header" onclick="toggleInterp()">
+      <span>Interpretation Guide for Equity Research</span>
+      <span class="chevron" id="interpChevron">&#9660;</span>
+    </div>
+    <div class="interp-body" id="interpBody">
+      <ul>
+        <li><strong>Withheld income tax trends</strong> &mdash; Proxy for aggregate wage &amp; employment growth. Rising withheld taxes suggest strengthening labor market and wage inflation.</li>
+        <li><strong>Non-withheld individual taxes</strong> &mdash; Proxy for capital gains realizations and self-employment income. Surges often correlate with equity market gains and tax-planning events.</li>
+        <li><strong>Corporate income taxes</strong> &mdash; Proxy for corporate profitability. Compare trends to S&amp;P 500 earnings revisions for leading/confirming signals.</li>
+        <li><strong>Excise taxes</strong> &mdash; Consumption and activity indicator. Tracks gasoline usage, air travel, tobacco/alcohol, and other specific economic activities.</li>
+        <li><strong>Customs duties</strong> &mdash; Import volume and trade activity indicator. Sensitive to tariff policy changes and global trade flows.</li>
+        <li><strong>Social insurance receipts</strong> &mdash; Employment breadth indicator. Tracks the total payroll base (number of workers &times; wages subject to FICA).</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Footnotes -->
+  <div class="footnotes">
+    <strong>Data Sources:</strong> US Treasury Fiscal Data API (api.fiscaldata.treasury.gov). Monthly Treasury Statement (MTS) Table 4 — updated monthly, ~8-12th business day of the following month. Daily Treasury Statement (DTS) Table II — updated daily by 4 PM next business day.<br>
+    <strong>Units:</strong> All dollar amounts are in millions of USD unless otherwise noted. Chart values in $B are converted from source data.<br>
+    <strong>YoY Calculation:</strong> ((Current &minus; Prior) / |Prior|) &times; 100. Division-by-zero cases are shown as N/A.<br>
+    <strong>Note:</strong> DTS Table II was restructured on Feb 14, 2023. Category names for pre-Feb 2023 data may differ. Social Insurance receipts combine on-budget and off-budget components.<br>
+    <strong>Disclaimer:</strong> This dashboard is for informational and research purposes only. It does not constitute investment advice.
+  </div>
+</div>
+
+<script>
+// ===== GLOBALS =====
+const BASE = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service';
+let mtsCache = null;
+let dtsCache = null;
+let chartsMap = {};
+
+const MTS_CATEGORIES = [
+  'Individual Income Taxes',
+  'Corporation Income Taxes',
+  'Social Insurance and Retirement Receipts (on-budget)',
+  'Social Insurance and Retirement Receipts (off-budget)',
+  'Excise Taxes',
+  'Estate and Gift Taxes',
+  'Customs Duties',
+  'Miscellaneous Receipts'
+];
+
+const DISPLAY_CATEGORIES = [
+  'Individual Income Taxes',
+  'Corporation Income Taxes',
+  'Social Insurance & Retirement',
+  'Excise Taxes',
+  'Estate and Gift Taxes',
+  'Customs Duties',
+  'Miscellaneous Receipts'
+];
+
+const CAT_COLORS = {
+  'Individual Income Taxes': '#3b82f6',
+  'Corporation Income Taxes': '#f59e0b',
+  'Social Insurance & Retirement': '#22c55e',
+  'Excise Taxes': '#a855f7',
+  'Estate and Gift Taxes': '#ec4899',
+  'Customs Duties': '#06b6d4',
+  'Miscellaneous Receipts': '#6b7280'
+};
+
+const DTS_CATEGORIES = [
+  'Federal Tax Deposits - Withheld Income and Employment Taxes',
+  'Individual Income and Employment Taxes, Not Withheld',
+  'Corporate Income Tax Deposits',
+  'Federal Tax Deposits - Excise Taxes'
+];
+
+const DTS_SHORT = {
+  'Federal Tax Deposits - Withheld Income and Employment Taxes': 'Withheld Income & Employment',
+  'Individual Income and Employment Taxes, Not Withheld': 'Non-Withheld Individual',
+  'Corporate Income Tax Deposits': 'Corporate Income Tax',
+  'Federal Tax Deposits - Excise Taxes': 'Excise Tax Deposits'
+};
+
+const DTS_COLORS = {
+  'Federal Tax Deposits - Withheld Income and Employment Taxes': '#3b82f6',
+  'Individual Income and Employment Taxes, Not Withheld': '#f59e0b',
+  'Corporate Income Tax Deposits': '#22c55e',
+  'Federal Tax Deposits - Excise Taxes': '#a855f7'
+};
+
+// ===== UTILITIES =====
+function parseNum(v) {
+  if (v == null || v === '' || v === 'null' || v === 'NaN') return null;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+function yoyPct(cur, prior) {
+  if (prior == null || prior === 0 || cur == null) return null;
+  return ((cur - prior) / Math.abs(prior)) * 100;
+}
+
+function fmtPct(v) {
+  if (v == null) return 'N/A';
+  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+}
+
+function fmtDollarM(v) {
+  if (v == null) return 'N/A';
+  if (Math.abs(v) >= 1000) return '$' + (v / 1000).toFixed(1) + 'B';
+  return '$' + v.toFixed(0) + 'M';
+}
+
+function fmtDollarB(v) {
+  if (v == null) return 'N/A';
+  return '$' + (v / 1000).toFixed(1) + 'B';
+}
+
+function showLoading(id, show) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+function showError(containerId, msg) {
+  const wrap = document.getElementById(containerId);
+  if (!wrap) return;
+  const overlay = wrap.querySelector('.loading-overlay');
+  if (overlay) overlay.style.display = 'none';
+  const existing = wrap.querySelector('.error-msg');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.className = 'error-msg';
+  div.textContent = msg;
+  wrap.appendChild(div);
+}
+
+function clearError(containerId) {
+  const wrap = document.getElementById(containerId);
+  if (!wrap) return;
+  const existing = wrap.querySelector('.error-msg');
+  if (existing) existing.remove();
+}
+
+function combineSocialInsurance(data) {
+  // Combine on-budget and off-budget Social Insurance into one row per date
+  const socialOn = {};
+  const socialOff = {};
+  const other = [];
+  data.forEach(r => {
+    const key = r.record_date + '|' + r.record_calendar_month + '|' + r.record_calendar_year;
+    if (r.classification_desc === 'Social Insurance and Retirement Receipts (on-budget)') {
+      socialOn[key] = r;
+    } else if (r.classification_desc === 'Social Insurance and Retirement Receipts (off-budget)') {
+      socialOff[key] = r;
+    } else {
+      other.push(r);
+    }
+  });
+  // Merge
+  Object.keys(socialOn).forEach(key => {
+    const on = socialOn[key];
+    const off = socialOff[key];
+    const combined = { ...on, classification_desc: 'Social Insurance & Retirement' };
+    const a1 = parseNum(on.current_month_rcpt_amt) || 0;
+    const a2 = off ? (parseNum(off.current_month_rcpt_amt) || 0) : 0;
+    combined.current_month_rcpt_amt = String(a1 + a2);
+    const f1 = parseNum(on.current_fytd_rcpt_amt) || 0;
+    const f2 = off ? (parseNum(off.current_fytd_rcpt_amt) || 0) : 0;
+    combined.current_fytd_rcpt_amt = String(f1 + f2);
+    const p1 = parseNum(on.prior_fytd_rcpt_amt) || 0;
+    const p2 = off ? (parseNum(off.prior_fytd_rcpt_amt) || 0) : 0;
+    combined.prior_fytd_rcpt_amt = String(p1 + p2);
+    other.push(combined);
+  });
+  // Also include off-budget only if no matching on-budget
+  Object.keys(socialOff).forEach(key => {
+    if (!socialOn[key]) {
+      const off = socialOff[key];
+      other.push({ ...off, classification_desc: 'Social Insurance & Retirement' });
+    }
+  });
+  return other;
+}
+
+// ===== DATA FETCHING =====
+async function fetchMTS() {
+  if (mtsCache) return mtsCache;
+  const url = `${BASE}/v1/accounting/mts/mts_table_4?fields=record_date,classification_desc,current_month_rcpt_amt,current_fytd_rcpt_amt,prior_fytd_rcpt_amt,record_calendar_month,record_calendar_year,record_fiscal_year&filter=record_date:gte:2021-01-01&sort=-record_date&page[size]=10000`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`MTS API error: ${resp.status}`);
+  const json = await resp.json();
+  let data = json.data.filter(r => MTS_CATEGORIES.includes(r.classification_desc));
+  data = combineSocialInsurance(data);
+  mtsCache = data;
+  return data;
+}
+
+async function fetchDTS() {
+  if (dtsCache) return dtsCache;
+  const url = `${BASE}/v1/accounting/dts/deposits_withdrawals_operating_cash?fields=record_date,transaction_type,transaction_catg,transaction_today_amt,transaction_mtd_amt,transaction_fytd_amt,record_calendar_year,record_calendar_month,record_calendar_day&filter=record_date:gte:2024-01-01,transaction_type:eq:Deposits&sort=-record_date&page[size]=10000`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`DTS API error: ${resp.status}`);
+  const json = await resp.json();
+  const data = json.data.filter(r => DTS_CATEGORIES.includes(r.transaction_catg));
+  dtsCache = data;
+  return data;
+}
+
+// ===== CHART.JS DEFAULTS =====
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = '#2a3a52';
+Chart.defaults.font.family = "'SF Mono','Fira Code','Consolas',monospace";
+Chart.defaults.font.size = 11;
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+Chart.defaults.plugins.legend.labels.padding = 12;
+Chart.defaults.plugins.tooltip.backgroundColor = '#1a2234';
+Chart.defaults.plugins.tooltip.borderColor = '#3b82f6';
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.plugins.tooltip.titleFont = { size: 11, family: "'SF Mono','Consolas',monospace" };
+Chart.defaults.plugins.tooltip.bodyFont = { size: 11, family: "'SF Mono','Consolas',monospace" };
+Chart.defaults.plugins.tooltip.cornerRadius = 4;
+
+function destroyChart(key) {
+  if (chartsMap[key]) { chartsMap[key].destroy(); delete chartsMap[key]; }
+}
+
+// ===== CHART 1: YoY % Change Line Chart =====
+function buildChart1(data) {
+  destroyChart('chart1');
+  clearError('chart1Wrap');
+  // Group by category and month
+  const byCategory = {};
+  DISPLAY_CATEGORIES.forEach(c => { byCategory[c] = {}; });
+  data.forEach(r => {
+    const cat = r.classification_desc;
+    if (!byCategory[cat]) return;
+    const key = r.record_calendar_year + '-' + String(r.record_calendar_month).padStart(2, '0');
+    const amt = parseNum(r.current_month_rcpt_amt);
+    byCategory[cat][key] = amt;
+  });
+
+  // Build time series for each category
+  const datasets = [];
+  DISPLAY_CATEGORIES.forEach(cat => {
+    const months = byCategory[cat];
+    const points = [];
+    Object.keys(months).sort().forEach(key => {
+      const [y, m] = key.split('-').map(Number);
+      const priorKey = (y - 1) + '-' + String(m).padStart(2, '0');
+      const cur = months[key];
+      const prior = months[priorKey];
+      const pct = yoyPct(cur, prior);
+      if (pct != null) {
+        points.push({ x: new Date(y, m - 1, 15), y: pct });
+      }
+    });
+    points.sort((a, b) => a.x - b.x);
+    datasets.push({
+      label: cat,
+      data: points,
+      borderColor: CAT_COLORS[cat],
+      backgroundColor: CAT_COLORS[cat] + '22',
+      borderWidth: 2,
+      pointRadius: 2,
+      pointHoverRadius: 5,
+      tension: 0.2,
+      fill: false
+    });
+  });
+
+  const ctx = document.getElementById('chart1').getContext('2d');
+  chartsMap['chart1'] = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'quarter', displayFormats: { quarter: 'MMM yyyy' } },
+          grid: { color: '#1e293b' }
+        },
+        y: {
+          title: { display: true, text: 'YoY % Change' },
+          grid: { color: '#1e293b' },
+          ticks: { callback: v => v.toFixed(0) + '%' }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.label + ': ' + fmtPct(ctx.parsed.y)
+          }
+        },
+        legend: { position: 'top' }
+      }
+    }
+  });
+  showLoading('chart1Loading', false);
+}
+
+// ===== CHART 2: Stacked Bar =====
+function buildChart2(data) {
+  destroyChart('chart2');
+  clearError('chart2Wrap');
+  // Last 2 years of data
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 2);
+
+  const byMonth = {};
+  data.forEach(r => {
+    const d = new Date(r.record_date);
+    if (d < cutoff) return;
+    const key = r.record_calendar_year + '-' + String(r.record_calendar_month).padStart(2, '0');
+    if (!byMonth[key]) byMonth[key] = {};
+    const amt = parseNum(r.current_month_rcpt_amt);
+    if (amt != null) {
+      byMonth[key][r.classification_desc] = (byMonth[key][r.classification_desc] || 0) + amt;
+    }
+  });
+
+  const labels = Object.keys(byMonth).sort();
+  const datasets = DISPLAY_CATEGORIES.map(cat => ({
+    label: cat,
+    data: labels.map(l => (byMonth[l][cat] || 0) / 1000),
+    backgroundColor: CAT_COLORS[cat],
+    borderWidth: 0
+  }));
+
+  const ctx = document.getElementById('chart2').getContext('2d');
+  chartsMap['chart2'] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labels.map(l => { const [y, m] = l.split('-'); return new Date(+y, +m - 1, 15); }), datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
+          stacked: true,
+          grid: { display: false }
+        },
+        y: {
+          stacked: true,
+          title: { display: true, text: 'Receipts ($B)' },
+          grid: { color: '#1e293b' }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(1) + 'B'
+          }
+        },
+        legend: { display: false }
+      }
+    }
+  });
+  showLoading('chart2Loading', false);
+}
+
+// ===== CHART 3: FYTD Comparison =====
+function buildChart3(data) {
+  destroyChart('chart3');
+  clearError('chart3Wrap');
+  // Get latest fiscal year from data
+  const latestFY = Math.max(...data.map(r => parseInt(r.record_fiscal_year) || 0));
+  // Get the latest month available for this FY
+  const fyData = data.filter(r => parseInt(r.record_fiscal_year) === latestFY);
+  const latestDate = fyData.reduce((max, r) => r.record_date > max ? r.record_date : max, '');
+
+  // Get FYTD amounts for the latest record in current FY for each category
+  const latestRows = fyData.filter(r => r.record_date === latestDate);
+  const categories = [];
+  const currentVals = [];
+  const priorVals = [];
+
+  DISPLAY_CATEGORIES.forEach(cat => {
+    const row = latestRows.find(r => r.classification_desc === cat);
+    if (!row) return;
+    const cur = parseNum(row.current_fytd_rcpt_amt);
+    const prior = parseNum(row.prior_fytd_rcpt_amt);
+    if (cur != null) {
+      categories.push(cat);
+      currentVals.push(cur / 1000);
+      priorVals.push((prior || 0) / 1000);
+    }
+  });
+
+  const ctx = document.getElementById('chart3').getContext('2d');
+  chartsMap['chart3'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: categories.map(c => c.length > 20 ? c.substring(0, 18) + '...' : c),
+      datasets: [
+        { label: 'Current FYTD', data: currentVals, backgroundColor: '#3b82f6', borderWidth: 0 },
+        { label: 'Prior FYTD', data: priorVals, backgroundColor: '#475569', borderWidth: 0 }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'y',
+      scales: {
+        x: {
+          title: { display: true, text: '$B' },
+          grid: { color: '#1e293b' }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { font: { size: 10 } }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            afterLabel: function(ctx) {
+              const cur = currentVals[ctx.dataIndex];
+              const prior = priorVals[ctx.dataIndex];
+              const pct = yoyPct(cur, prior);
+              return 'YoY: ' + fmtPct(pct);
+            }
+          }
+        },
+        legend: { position: 'top' }
+      }
+    }
+  });
+  showLoading('chart3Loading', false);
+}
+
+// ===== SUMMARY TABLE =====
+function buildSummaryTable(data) {
+  const wrap = document.getElementById('summaryTableWrap');
+  showLoading('summaryTableLoading', false);
+
+  // Find latest month record
+  const latestDate = data.reduce((max, r) => r.record_date > max ? r.record_date : max, '');
+  const latestRows = data.filter(r => r.record_date === latestDate);
+
+  // For YoY monthly, find same month last year
+  const ld = new Date(latestDate);
+  const priorYear = ld.getFullYear() - 1;
+  const priorMonth = String(ld.getMonth() + 1).padStart(2, '0');
+
+  const rows = [];
+  DISPLAY_CATEGORIES.forEach(cat => {
+    const cur = latestRows.find(r => r.classification_desc === cat);
+    if (!cur) return;
+    const curMonthAmt = parseNum(cur.current_month_rcpt_amt);
+    const curFytd = parseNum(cur.current_fytd_rcpt_amt);
+    const priorFytd = parseNum(cur.prior_fytd_rcpt_amt);
+
+    // Find prior year same month
+    const priorRow = data.find(r =>
+      r.classification_desc === cat &&
+      r.record_calendar_year == String(priorYear) &&
+      r.record_calendar_month == String(ld.getMonth() + 1)
+    );
+    const priorMonthAmt = priorRow ? parseNum(priorRow.current_month_rcpt_amt) : null;
+    const monthYoy = yoyPct(curMonthAmt, priorMonthAmt);
+    const fytdYoy = yoyPct(curFytd, priorFytd);
+
+    rows.push({ cat, curMonthAmt, monthYoy, curFytd, fytdYoy, color: CAT_COLORS[cat] });
+  });
+
+  rows.sort((a, b) => (b.curMonthAmt || 0) - (a.curMonthAmt || 0));
+
+  const monthLabel = ld.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+
+  let html = `<table class="summary-table">
+    <thead><tr>
+      <th>Category</th>
+      <th class="right">${monthLabel}</th>
+      <th class="right">Monthly YoY</th>
+      <th class="right">FYTD</th>
+      <th class="right">FYTD YoY</th>
+    </tr></thead><tbody>`;
+
+  rows.forEach(r => {
+    const mCls = r.monthYoy != null ? (r.monthYoy >= 0 ? 'val-pos' : 'val-neg') : '';
+    const fCls = r.fytdYoy != null ? (r.fytdYoy >= 0 ? 'val-pos' : 'val-neg') : '';
+    html += `<tr>
+      <td><span class="cat-dot" style="background:${r.color}"></span>${r.cat}</td>
+      <td class="right">${fmtDollarM(r.curMonthAmt)}</td>
+      <td class="right ${mCls}">${fmtPct(r.monthYoy)}</td>
+      <td class="right">${fmtDollarB(r.curFytd)}</td>
+      <td class="right ${fCls}">${fmtPct(r.fytdYoy)}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+// ===== DTS SUMMARY CARDS =====
+function buildDTSCards(data) {
+  const wrap = document.getElementById('dtsCards');
+  // Get latest month data
+  const latestDate = data.reduce((max, r) => r.record_date > max ? r.record_date : max, '');
+  const latest = new Date(latestDate);
+  const curYear = latest.getFullYear();
+  const curMonth = latest.getMonth() + 1;
+
+  const cards = [];
+  DTS_CATEGORIES.forEach(cat => {
+    // Current month latest MTD
+    const curRows = data.filter(r =>
+      r.transaction_catg === cat &&
+      parseInt(r.record_calendar_year) === curYear &&
+      parseInt(r.record_calendar_month) === curMonth
+    );
+    const curLatest = curRows.sort((a, b) => b.record_date.localeCompare(a.record_date))[0];
+    const curMtd = curLatest ? parseNum(curLatest.transaction_mtd_amt) : null;
+
+    // Prior year same month, closest day
+    const priorRows = data.filter(r =>
+      r.transaction_catg === cat &&
+      parseInt(r.record_calendar_year) === curYear - 1 &&
+      parseInt(r.record_calendar_month) === curMonth
+    );
+    // Find the closest day match
+    const curDay = curLatest ? parseInt(curLatest.record_calendar_day) : 28;
+    let priorBest = null;
+    let bestDiff = Infinity;
+    priorRows.forEach(r => {
+      const d = parseInt(r.record_calendar_day);
+      const diff = Math.abs(d - curDay);
+      if (diff < bestDiff) { bestDiff = diff; priorBest = r; }
+    });
+    const priorMtd = priorBest ? parseNum(priorBest.transaction_mtd_amt) : null;
+    const pct = yoyPct(curMtd, priorMtd);
+
+    cards.push({ cat, curMtd, priorMtd, pct });
+  });
+
+  const monthLabel = latest.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  wrap.innerHTML = cards.map(c => {
+    const cls = c.pct != null ? (c.pct >= 0 ? 'val-pos arrow-up' : 'val-neg arrow-down') : '';
+    return `<div class="summary-card">
+      <div class="card-label">${DTS_SHORT[c.cat]}</div>
+      <div class="card-value">${fmtDollarM(c.curMtd)}</div>
+      <div class="card-sub">MTD ${monthLabel} | Prior: ${fmtDollarM(c.priorMtd)}</div>
+      <div class="card-delta ${cls}">${fmtPct(c.pct)}</div>
+    </div>`;
+  }).join('');
+}
+
+// ===== CHART 4: Rolling 30-Day YoY Withheld =====
+function buildChart4(data) {
+  destroyChart('chart4');
+  clearError('chart4Wrap');
+  const cat = 'Federal Tax Deposits - Withheld Income and Employment Taxes';
+  const rows = data.filter(r => r.transaction_catg === cat).sort((a, b) => a.record_date.localeCompare(b.record_date));
+
+  // Build daily amounts by date
+  const daily = {};
+  rows.forEach(r => {
+    const amt = parseNum(r.transaction_today_amt);
+    if (amt != null) daily[r.record_date] = amt;
+  });
+
+  const dates = Object.keys(daily).sort();
+  // Compute 30-day rolling sum
+  const rolling = {};
+  dates.forEach((d, i) => {
+    let sum = 0;
+    for (let j = i; j >= Math.max(0, i - 29); j--) {
+      sum += daily[dates[j]] || 0;
+    }
+    if (i >= 29) rolling[d] = sum;
+  });
+
+  // Compute YoY
+  const points = [];
+  Object.keys(rolling).sort().forEach(d => {
+    const dt = new Date(d);
+    const priorDate = new Date(dt);
+    priorDate.setFullYear(priorDate.getFullYear() - 1);
+    // Find closest date in prior year
+    const pKey = priorDate.toISOString().slice(0, 10);
+    // Search window of +/- 3 days
+    let priorVal = null;
+    for (let offset = 0; offset <= 3; offset++) {
+      const d1 = new Date(priorDate); d1.setDate(d1.getDate() + offset);
+      const d2 = new Date(priorDate); d2.setDate(d2.getDate() - offset);
+      if (rolling[d1.toISOString().slice(0, 10)] != null) { priorVal = rolling[d1.toISOString().slice(0, 10)]; break; }
+      if (rolling[d2.toISOString().slice(0, 10)] != null) { priorVal = rolling[d2.toISOString().slice(0, 10)]; break; }
+    }
+    const pct = yoyPct(rolling[d], priorVal);
+    if (pct != null) points.push({ x: dt, y: pct });
+  });
+
+  const ctx = document.getElementById('chart4').getContext('2d');
+  chartsMap['chart4'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [{
+        label: 'Withheld Taxes 30-Day Rolling YoY %',
+        data: points,
+        borderColor: '#3b82f6',
+        backgroundColor: '#3b82f622',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
+          grid: { color: '#1e293b' }
+        },
+        y: {
+          title: { display: true, text: 'YoY % Change' },
+          grid: { color: '#1e293b' },
+          ticks: { callback: v => v.toFixed(0) + '%' }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: { label: ctx => fmtPct(ctx.parsed.y) }
+        },
+        legend: { display: false }
+      }
+    }
+  });
+  showLoading('chart4Loading', false);
+}
+
+// ===== CHART 5: MTD Cumulative =====
+function buildChart5(data) {
+  destroyChart('chart5');
+  clearError('chart5Wrap');
+  // Current month and prior year same month
+  const latestDate = data.reduce((max, r) => r.record_date > max ? r.record_date : max, '');
+  const latest = new Date(latestDate);
+  const curYear = latest.getFullYear();
+  const curMonth = latest.getMonth() + 1;
+
+  const datasets = [];
+  const colorPairs = [['#3b82f6', '#3b82f666'], ['#f59e0b', '#f59e0b66']];
+  const catsToShow = [
+    'Federal Tax Deposits - Withheld Income and Employment Taxes',
+    'Corporate Income Tax Deposits'
+  ];
+
+  catsToShow.forEach((cat, ci) => {
+    // Current year
+    const curRows = data.filter(r =>
+      r.transaction_catg === cat &&
+      parseInt(r.record_calendar_year) === curYear &&
+      parseInt(r.record_calendar_month) === curMonth
+    ).sort((a, b) => parseInt(a.record_calendar_day) - parseInt(b.record_calendar_day));
+
+    const curPoints = curRows.map(r => ({
+      x: parseInt(r.record_calendar_day),
+      y: parseNum(r.transaction_mtd_amt)
+    })).filter(p => p.y != null);
+
+    // Prior year
+    const priorRows = data.filter(r =>
+      r.transaction_catg === cat &&
+      parseInt(r.record_calendar_year) === curYear - 1 &&
+      parseInt(r.record_calendar_month) === curMonth
+    ).sort((a, b) => parseInt(a.record_calendar_day) - parseInt(b.record_calendar_day));
+
+    const priorPoints = priorRows.map(r => ({
+      x: parseInt(r.record_calendar_day),
+      y: parseNum(r.transaction_mtd_amt)
+    })).filter(p => p.y != null);
+
+    const short = DTS_SHORT[cat];
+    datasets.push({
+      label: short + ' ' + curYear,
+      data: curPoints,
+      borderColor: colorPairs[ci][0],
+      borderWidth: 2,
+      pointRadius: 1,
+      tension: 0.2,
+      fill: false
+    });
+    datasets.push({
+      label: short + ' ' + (curYear - 1),
+      data: priorPoints,
+      borderColor: colorPairs[ci][1],
+      borderWidth: 2,
+      borderDash: [5, 5],
+      pointRadius: 1,
+      tension: 0.2,
+      fill: false
+    });
+  });
+
+  const ctx = document.getElementById('chart5').getContext('2d');
+  chartsMap['chart5'] = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          type: 'linear',
+          title: { display: true, text: 'Day of Month' },
+          min: 1, max: 31,
+          grid: { color: '#1e293b' }
+        },
+        y: {
+          title: { display: true, text: 'MTD ($M)' },
+          grid: { color: '#1e293b' }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.label + ': ' + fmtDollarM(ctx.parsed.y)
+          }
+        },
+        legend: { position: 'top', labels: { font: { size: 10 } } }
+      }
+    }
+  });
+  showLoading('chart5Loading', false);
+}
+
+// ===== CHART 6: Withheld vs Non-Withheld =====
+function buildChart6(dtsData) {
+  destroyChart('chart6');
+  clearError('chart6Wrap');
+  const catW = 'Federal Tax Deposits - Withheld Income and Employment Taxes';
+  const catNW = 'Individual Income and Employment Taxes, Not Withheld';
+
+  function monthlyAgg(cat) {
+    const byMonth = {};
+    dtsData.filter(r => r.transaction_catg === cat).forEach(r => {
+      const key = r.record_calendar_year + '-' + String(r.record_calendar_month).padStart(2, '0');
+      // Use the last day of the month (max MTD) as the monthly total
+      if (!byMonth[key] || r.record_date > byMonth[key].record_date) {
+        byMonth[key] = r;
+      }
+    });
+    return byMonth;
+  }
+
+  const wMonths = monthlyAgg(catW);
+  const nwMonths = monthlyAgg(catNW);
+
+  // Compute YoY for each
+  function buildYoY(months) {
+    const keys = Object.keys(months).sort();
+    const points = [];
+    keys.forEach(k => {
+      const [y, m] = k.split('-').map(Number);
+      const pk = (y - 1) + '-' + String(m).padStart(2, '0');
+      const cur = parseNum(months[k].transaction_mtd_amt);
+      const prior = months[pk] ? parseNum(months[pk].transaction_mtd_amt) : null;
+      const pct = yoyPct(cur, prior);
+      if (pct != null) points.push({ x: new Date(y, m - 1, 15), y: pct });
+    });
+    return points;
+  }
+
+  const wPoints = buildYoY(wMonths);
+  const nwPoints = buildYoY(nwMonths);
+
+  const ctx = document.getElementById('chart6').getContext('2d');
+  chartsMap['chart6'] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'Withheld (Employment)',
+          data: wPoints,
+          borderColor: '#3b82f6',
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.2,
+          fill: false
+        },
+        {
+          label: 'Non-Withheld (Estimated/Cap Gains)',
+          data: nwPoints,
+          borderColor: '#f59e0b',
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.2,
+          fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
+          grid: { color: '#1e293b' }
+        },
+        y: {
+          title: { display: true, text: 'YoY % Change (Monthly)' },
+          grid: { color: '#1e293b' },
+          ticks: { callback: v => v.toFixed(0) + '%' }
+        }
+      },
+      plugins: {
+        legend: { position: 'top' }
+      }
+    }
+  });
+  showLoading('chart6Loading', false);
+}
+
+// ===== CHART 7: Corporate Monthly Trend =====
+function buildChart7(mtsData) {
+  destroyChart('chart7');
+  clearError('chart7Wrap');
+  const cat = 'Corporation Income Taxes';
+  const rows = mtsData.filter(r => r.classification_desc === cat);
+
+  const byMonth = {};
+  rows.forEach(r => {
+    const key = r.record_calendar_year + '-' + String(r.record_calendar_month).padStart(2, '0');
+    byMonth[key] = parseNum(r.current_month_rcpt_amt);
+  });
+
+  const keys = Object.keys(byMonth).sort();
+  // Last 3 years
+  const recent = keys.slice(-36);
+
+  const labels = recent.map(k => {
+    const [y, m] = k.split('-');
+    return new Date(+y, +m - 1, 15);
+  });
+  const amounts = recent.map(k => (byMonth[k] || 0) / 1000);
+  const yoys = recent.map(k => {
+    const [y, m] = k.split('-').map(Number);
+    const pk = (y - 1) + '-' + String(m).padStart(2, '0');
+    return yoyPct(byMonth[k], byMonth[pk]);
+  });
+
+  // Highlight quarterly estimated payment months
+  const bgColors = recent.map(k => {
+    const m = parseInt(k.split('-')[1]);
+    return [1, 4, 6, 9, 12].includes(m) ? '#f59e0bcc' : '#f59e0b88';
+  });
+
+  const ctx = document.getElementById('chart7').getContext('2d');
+  chartsMap['chart7'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Corp Tax Receipts ($B)',
+          data: amounts,
+          backgroundColor: bgColors,
+          borderWidth: 0,
+          yAxisID: 'y',
+          order: 2
+        },
+        {
+          label: 'YoY % Change',
+          data: yoys,
+          type: 'line',
+          borderColor: '#ef4444',
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.2,
+          fill: false,
+          yAxisID: 'y1',
+          order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'month', displayFormats: { month: 'MMM yy' } },
+          grid: { display: false }
+        },
+        y: {
+          position: 'left',
+          title: { display: true, text: 'Receipts ($B)' },
+          grid: { color: '#1e293b' }
+        },
+        y1: {
+          position: 'right',
+          title: { display: true, text: 'YoY %' },
+          grid: { drawOnChartArea: false },
+          ticks: { callback: v => (v != null ? v.toFixed(0) + '%' : '') }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              if (ctx.datasetIndex === 0) return 'Receipts: $' + ctx.parsed.y.toFixed(1) + 'B';
+              return 'YoY: ' + fmtPct(ctx.parsed.y);
+            }
+          }
+        },
+        legend: { position: 'top' }
+      }
+    }
+  });
+  showLoading('chart7Loading', false);
+}
+
+// ===== INTERPRETATION GUIDE TOGGLE =====
+function toggleInterp() {
+  const body = document.getElementById('interpBody');
+  const chevron = document.getElementById('interpChevron');
+  body.classList.toggle('open');
+  chevron.classList.toggle('open');
+}
+
+// ===== MAIN ORCHESTRATION =====
+async function loadMTSCharts() {
+  try {
+    const data = await fetchMTS();
+    buildChart1(data);
+    buildChart2(data);
+    buildChart3(data);
+    buildSummaryTable(data);
+    buildChart7(data);
+  } catch (e) {
+    console.error('MTS load error:', e);
+    ['chart1Wrap', 'chart2Wrap', 'chart3Wrap'].forEach(id => showError(id, 'Failed to load MTS data: ' + e.message));
+    showLoading('chart1Loading', false);
+    showLoading('chart2Loading', false);
+    showLoading('chart3Loading', false);
+    showLoading('chart7Loading', false);
+    const wrap = document.getElementById('summaryTableWrap');
+    wrap.innerHTML = '<div class="error-msg">Failed to load MTS data: ' + e.message + '</div>';
+  }
+}
+
+async function loadDTSCharts() {
+  try {
+    const data = await fetchDTS();
+    buildDTSCards(data);
+    buildChart4(data);
+    buildChart5(data);
+    buildChart6(data);
+  } catch (e) {
+    console.error('DTS load error:', e);
+    ['chart4Wrap', 'chart5Wrap', 'chart6Wrap'].forEach(id => showError(id, 'Failed to load DTS data: ' + e.message));
+    showLoading('chart4Loading', false);
+    showLoading('chart5Loading', false);
+    showLoading('chart6Loading', false);
+    document.getElementById('dtsCards').innerHTML = '<div class="error-msg" style="grid-column:1/-1;">Failed to load DTS data: ' + e.message + '</div>';
+  }
+}
+
+async function refreshAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+
+  // Clear caches
+  mtsCache = null;
+  dtsCache = null;
+
+  // Show all loaders
+  ['chart1Loading', 'chart2Loading', 'chart3Loading', 'chart4Loading', 'chart5Loading', 'chart6Loading', 'chart7Loading'].forEach(id => showLoading(id, true));
+  document.getElementById('summaryTableWrap').innerHTML = '<div class="loading-overlay" id="summaryTableLoading" style="position:relative;min-height:100px;"><div class="spinner"></div><div class="loading-text">Loading...</div></div>';
+
+  await Promise.all([loadMTSCharts(), loadDTSCharts()]);
+
+  const now = new Date();
+  document.getElementById('lastRefresh').textContent = 'Last refresh: ' + now.toLocaleString();
+  btn.disabled = false;
+  btn.textContent = 'Refresh Data';
+}
+
+// ===== INIT =====
+document.addEventListener('DOMContentLoaded', refreshAll);
+</script>
+</body>
+</html>
