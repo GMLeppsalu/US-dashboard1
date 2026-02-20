@@ -624,11 +624,18 @@ function combineSocialInsurance(data) {
 // ===== DATA FETCHING =====
 async function fetchMTS() {
   if (mtsCache) return mtsCache;
-  const url = `${BASE}/v1/accounting/mts/mts_table_4?fields=record_date,classification_desc,current_month_rcpt_amt,current_fytd_rcpt_amt,prior_fytd_rcpt_amt,record_calendar_month,record_calendar_year,record_fiscal_year&filter=record_date:gte:2021-01-01&sort=-record_date&page[size]=10000`;
+  const url = `${BASE}/v1/accounting/mts/mts_table_4?filter=record_date:gte:2021-01-01&sort=-record_date&page%5Bsize%5D=10000`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`MTS API error: ${resp.status}`);
   const json = await resp.json();
-  let data = json.data.filter(r => MTS_CATEGORIES.includes(r.classification_desc));
+  // Normalize field names — API may use "net_rcpt" or "gross_rcpt" variants
+  let data = json.data.map(r => ({
+    ...r,
+    current_month_rcpt_amt: r.current_month_rcpt_amt || r.current_month_net_rcpt_amt || r.current_month_gross_rcpt_amt,
+    current_fytd_rcpt_amt: r.current_fytd_rcpt_amt || r.current_fytd_net_rcpt_amt || r.current_fytd_gross_rcpt_amt,
+    prior_fytd_rcpt_amt: r.prior_fytd_rcpt_amt || r.prior_fytd_net_rcpt_amt || r.prior_fytd_gross_rcpt_amt,
+  }));
+  data = data.filter(r => MTS_CATEGORIES.includes(r.classification_desc));
   data = combineSocialInsurance(data);
   mtsCache = data;
   return data;
@@ -636,7 +643,7 @@ async function fetchMTS() {
 
 async function fetchDTS() {
   if (dtsCache) return dtsCache;
-  const url = `${BASE}/v1/accounting/dts/deposits_withdrawals_operating_cash?fields=record_date,transaction_type,transaction_catg,transaction_today_amt,transaction_mtd_amt,transaction_fytd_amt,record_calendar_year,record_calendar_month,record_calendar_day&filter=record_date:gte:2024-01-01,transaction_type:eq:Deposits&sort=-record_date&page[size]=10000`;
+  const url = `${BASE}/v1/accounting/dts/deposits_withdrawals_operating_cash?filter=record_date:gte:2024-01-01,transaction_type:eq:Deposits&sort=-record_date&page%5Bsize%5D=10000`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`DTS API error: ${resp.status}`);
   const json = await resp.json();
