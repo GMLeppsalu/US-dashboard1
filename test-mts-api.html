@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head><title>MTS API Test</title></head>
+<body style="font-family:monospace;background:#111;color:#eee;padding:20px;">
+<h2>MTS API Test — Discovering field names and category values</h2>
+<pre id="output">Fetching...</pre>
+<script>
+const BASE = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service';
+
+async function test() {
+  const out = document.getElementById('output');
+  let log = '';
+
+  try {
+    const url = `${BASE}/v1/accounting/mts/mts_table_4?filter=record_date:gte:2025-01-01&sort=-record_date&page%5Bsize%5D=50`;
+    log += '=== FETCH URL ===\n' + url + '\n\n';
+    const resp = await fetch(url);
+    log += `Status: ${resp.status}\n\n`;
+    const json = await resp.json();
+    log += `Total records returned: ${json.data.length}\n`;
+    log += `Meta: ${JSON.stringify(json.meta, null, 2)}\n\n`;
+
+    if (json.data.length > 0) {
+      log += '=== ALL FIELD NAMES (from first record) ===\n';
+      Object.keys(json.data[0]).forEach(k => {
+        log += `  ${k}: "${json.data[0][k]}"\n`;
+      });
+      log += '\n';
+
+      // Check for receipt field variants
+      const r = json.data[0];
+      log += '=== RECEIPT FIELD CHECK ===\n';
+      ['current_month_rcpt_amt', 'current_month_net_rcpt_amt', 'current_month_gross_rcpt_amt',
+       'current_fytd_rcpt_amt', 'current_fytd_net_rcpt_amt', 'current_fytd_gross_rcpt_amt',
+       'prior_fytd_rcpt_amt', 'prior_fytd_net_rcpt_amt', 'prior_fytd_gross_rcpt_amt'
+      ].forEach(f => {
+        log += `  ${f}: ${r[f] !== undefined ? '"' + r[f] + '"' : 'UNDEFINED'}\n`;
+      });
+      log += '\n';
+
+      const cats = [...new Set(json.data.map(r => r.classification_desc))].sort();
+      log += '=== UNIQUE classification_desc VALUES ===\n';
+      cats.forEach(c => log += `  "${c}"\n`);
+    }
+  } catch (e) {
+    log += `ERROR: ${e.message}\n`;
+  }
+
+  out.textContent = log;
+}
+
+test();
+</script>
+</body>
+</html>

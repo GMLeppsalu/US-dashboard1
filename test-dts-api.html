@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head><title>DTS API Test</title></head>
+<body style="font-family:monospace;background:#111;color:#eee;padding:20px;">
+<h2>DTS API Test — Discovering field names and category values</h2>
+<pre id="output">Fetching...</pre>
+<script>
+const BASE = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service';
+
+async function test() {
+  const out = document.getElementById('output');
+  let log = '';
+
+  // Test 1: Fetch one page of DTS data (no transaction_type filter) to see all categories
+  try {
+    const url = `${BASE}/v1/accounting/dts/deposits_withdrawals_operating_cash?filter=record_date:gte:2026-01-01&sort=-record_date&page%5Bsize%5D=500`;
+    log += '=== TEST 1: DISCOVER ALL CATEGORIES ===\n';
+    log += 'URL: ' + url + '\n\n';
+    const resp = await fetch(url);
+    log += `Status: ${resp.status}\n\n`;
+    const json = await resp.json();
+    log += `Total records returned: ${json.data.length}\n`;
+    log += `Meta: ${JSON.stringify(json.meta, null, 2)}\n\n`;
+
+    if (json.data.length > 0) {
+      log += '=== ALL FIELD NAMES (from first record) ===\n';
+      Object.keys(json.data[0]).forEach(k => {
+        log += `  ${k}: "${json.data[0][k]}"\n`;
+      });
+      log += '\n';
+
+      const types = [...new Set(json.data.map(r => r.transaction_type))];
+      log += '=== UNIQUE transaction_type VALUES ===\n';
+      types.forEach(t => log += `  "${t}"\n`);
+      log += '\n';
+
+      const depositRows = json.data.filter(r =>
+        r.transaction_type === 'Deposit' || r.transaction_type === 'Deposits'
+      );
+      log += `=== Deposit rows (checking both "Deposit" and "Deposits"): ${depositRows.length} ===\n\n`;
+
+      const cats = [...new Set(depositRows.map(r => r.transaction_catg))].sort();
+      log += '=== UNIQUE transaction_catg VALUES (deposit-side) ===\n';
+      cats.forEach(c => log += `  "${c}"\n`);
+      log += '\n';
+
+      const taxCats = cats.filter(c => c.toLowerCase().includes('tax'));
+      log += '=== TAX-RELATED CATEGORIES ===\n';
+      taxCats.forEach(c => log += `  "${c}"\n`);
+      log += '\n';
+
+      const OLD_CATS = [
+        'Federal Tax Deposits - Withheld Income and Employment Taxes',
+        'Individual Income and Employment Taxes, Not Withheld',
+        'Corporate Income Tax Deposits',
+        'Federal Tax Deposits - Excise Taxes'
+      ];
+      log += '=== OLD CATEGORY NAME CHECK (should all be NOT FOUND) ===\n';
+      OLD_CATS.forEach(c => {
+        const found = depositRows.some(r => r.transaction_catg === c);
+        log += `  "${c}" => ${found ? 'FOUND' : 'NOT FOUND'}\n`;
+      });
+      log += '\n';
+
+      const NEW_CATS = [
+        'Taxes - Withheld Individual/FICA',
+        'Taxes - Non Withheld Ind/SECA Electronic',
+        'Taxes - Non Withheld Ind/SECA Other',
+        'Taxes - Corporate Income',
+        'Taxes - Miscellaneous Excise'
+      ];
+      log += '=== NEW CATEGORY NAME CHECK (should all be FOUND) ===\n';
+      NEW_CATS.forEach(c => {
+        const found = depositRows.some(r => r.transaction_catg === c);
+        log += `  "${c}" => ${found ? 'FOUND ✓' : 'NOT FOUND ✗'}\n`;
+      });
+      log += '\n';
+
+      const sampleTax = depositRows.find(r => r.transaction_catg && r.transaction_catg.toLowerCase().includes('withheld'));
+      if (sampleTax) {
+        log += '=== SAMPLE TAX ROW ===\n';
+        log += JSON.stringify(sampleTax, null, 2) + '\n\n';
+      }
+    }
+  } catch (e) {
+    log += `ERROR in Test 1: ${e.message}\n\n`;
+  }
+
+  // Test 2: Test per-category fetch (the approach used in the dashboard)
+  log += '\n=== TEST 2: PER-CATEGORY FETCH (dashboard approach) ===\n';
+  const NEW_CATS = [
+    'Taxes - Withheld Individual/FICA',
+    'Taxes - Non Withheld Ind/SECA Electronic',
+    'Taxes - Non Withheld Ind/SECA Other',
+    'Taxes - Corporate Income',
+    'Taxes - Miscellaneous Excise'
+  ];
+  for (const cat of NEW_CATS) {
+    try {
+      const url = `${BASE}/v1/accounting/dts/deposits_withdrawals_operating_cash?filter=record_date:gte:2024-01-01,transaction_catg:eq:${encodeURIComponent(cat)}&sort=-record_date&page%5Bsize%5D=10`;
+      const resp = await fetch(url);
+      const json = await resp.json();
+      const total = json.meta ? json.meta['total-count'] : '?';
+      log += `  "${cat}": status=${resp.status}, rows=${json.data.length}, total=${total}\n`;
+      if (json.data.length > 0) {
+        const r = json.data[0];
+        log += `    Sample: date=${r.record_date}, today=${r.transaction_today_amt}, mtd=${r.transaction_mtd_amt}, fytd=${r.transaction_fytd_amt}\n`;
+      }
+    } catch (e) {
+      log += `  "${cat}": ERROR - ${e.message}\n`;
+    }
+  }
+
+  log += '\n=== TESTS COMPLETE ===\n';
+  out.textContent = log;
+}
+
+test();
+</script>
+</body>
+</html>

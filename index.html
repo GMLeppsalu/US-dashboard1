@@ -506,25 +506,35 @@ const CAT_COLORS = {
   'Miscellaneous Receipts': '#6b7280'
 };
 
+// DTS category names as returned by the API after the Feb 2023 Table II restructuring
+const DTS_RAW_CATEGORIES = [
+  'Taxes - Withheld Individual/FICA',
+  'Taxes - Non Withheld Ind/SECA Electronic',
+  'Taxes - Non Withheld Ind/SECA Other',
+  'Taxes - Corporate Income',
+  'Taxes - Miscellaneous Excise'
+];
+
+// Display categories (non-withheld Electronic + Other are combined)
 const DTS_CATEGORIES = [
-  'Federal Tax Deposits - Withheld Income and Employment Taxes',
-  'Individual Income and Employment Taxes, Not Withheld',
-  'Corporate Income Tax Deposits',
-  'Federal Tax Deposits - Excise Taxes'
+  'Taxes - Withheld Individual/FICA',
+  'Non-Withheld Individual/SECA',
+  'Taxes - Corporate Income',
+  'Taxes - Miscellaneous Excise'
 ];
 
 const DTS_SHORT = {
-  'Federal Tax Deposits - Withheld Income and Employment Taxes': 'Withheld Income & Employment',
-  'Individual Income and Employment Taxes, Not Withheld': 'Non-Withheld Individual',
-  'Corporate Income Tax Deposits': 'Corporate Income Tax',
-  'Federal Tax Deposits - Excise Taxes': 'Excise Tax Deposits'
+  'Taxes - Withheld Individual/FICA': 'Withheld Income & FICA',
+  'Non-Withheld Individual/SECA': 'Non-Withheld Individual',
+  'Taxes - Corporate Income': 'Corporate Income Tax',
+  'Taxes - Miscellaneous Excise': 'Excise Tax Deposits'
 };
 
 const DTS_COLORS = {
-  'Federal Tax Deposits - Withheld Income and Employment Taxes': '#3b82f6',
-  'Individual Income and Employment Taxes, Not Withheld': '#f59e0b',
-  'Corporate Income Tax Deposits': '#22c55e',
-  'Federal Tax Deposits - Excise Taxes': '#a855f7'
+  'Taxes - Withheld Individual/FICA': '#3b82f6',
+  'Non-Withheld Individual/SECA': '#f59e0b',
+  'Taxes - Corporate Income': '#22c55e',
+  'Taxes - Miscellaneous Excise': '#a855f7'
 };
 
 // ===== UTILITIES =====
@@ -643,13 +653,50 @@ async function fetchMTS() {
 
 async function fetchDTS() {
   if (dtsCache) return dtsCache;
-  const url = `${BASE}/v1/accounting/dts/deposits_withdrawals_operating_cash?filter=record_date:gte:2024-01-01,transaction_type:eq:Deposits&sort=-record_date&page%5Bsize%5D=10000`;
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`DTS API error: ${resp.status}`);
-  const json = await resp.json();
-  const data = json.data.filter(r => DTS_CATEGORIES.includes(r.transaction_catg));
+  // Fetch each tax category separately to stay within page size limits
+  // (Table II has 100+ categories per day; a single query would exceed 10K rows)
+  const fetches = DTS_RAW_CATEGORIES.map(async (cat) => {
+    const url = `${BASE}/v1/accounting/dts/deposits_withdrawals_operating_cash?filter=record_date:gte:2024-01-01,transaction_catg:eq:${encodeURIComponent(cat)}&sort=-record_date&page%5Bsize%5D=10000`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`DTS API error for ${cat}: ${resp.status}`);
+    const json = await resp.json();
+    return json.data;
+  });
+  const results = await Promise.all(fetches);
+  let data = results.flat();
+  data = combineDTSNonWithheld(data);
   dtsCache = data;
   return data;
+}
+
+function combineDTSNonWithheld(data) {
+  const NW_CATS = ['Taxes - Non Withheld Ind/SECA Electronic', 'Taxes - Non Withheld Ind/SECA Other'];
+  const COMBINED = 'Non-Withheld Individual/SECA';
+  const nwByDate = {};
+  const other = [];
+  data.forEach(r => {
+    if (NW_CATS.includes(r.transaction_catg)) {
+      if (!nwByDate[r.record_date]) nwByDate[r.record_date] = [];
+      nwByDate[r.record_date].push(r);
+    } else {
+      other.push(r);
+    }
+  });
+  Object.keys(nwByDate).forEach(date => {
+    const rows = nwByDate[date];
+    const combined = { ...rows[0], transaction_catg: COMBINED };
+    let todaySum = 0, mtdSum = 0, fytdSum = 0;
+    rows.forEach(r => {
+      todaySum += parseNum(r.transaction_today_amt) || 0;
+      mtdSum += parseNum(r.transaction_mtd_amt) || 0;
+      fytdSum += parseNum(r.transaction_fytd_amt) || 0;
+    });
+    combined.transaction_today_amt = String(todaySum);
+    combined.transaction_mtd_amt = String(mtdSum);
+    combined.transaction_fytd_amt = String(fytdSum);
+    other.push(combined);
+  });
+  return other;
 }
 
 // ===== CHART.JS DEFAULTS =====
@@ -945,6 +992,10 @@ function buildSummaryTable(data) {
 // ===== DTS SUMMARY CARDS =====
 function buildDTSCards(data) {
   const wrap = document.getElementById('dtsCards');
+  if (!data || data.length === 0) {
+    wrap.innerHTML = '<div class="error-msg" style="grid-column:1/-1;">No DTS data available</div>';
+    return;
+  }
   // Get latest month data
   const latestDate = data.reduce((max, r) => r.record_date > max ? r.record_date : max, '');
   const latest = new Date(latestDate);
@@ -999,7 +1050,7 @@ function buildDTSCards(data) {
 function buildChart4(data) {
   destroyChart('chart4');
   clearError('chart4Wrap');
-  const cat = 'Federal Tax Deposits - Withheld Income and Employment Taxes';
+  const cat = 'Taxes - Withheld Individual/FICA';
   const rows = data.filter(r => r.transaction_catg === cat).sort((a, b) => a.record_date.localeCompare(b.record_date));
 
   // Build daily amounts by date
@@ -1095,8 +1146,8 @@ function buildChart5(data) {
   const datasets = [];
   const colorPairs = [['#3b82f6', '#3b82f666'], ['#f59e0b', '#f59e0b66']];
   const catsToShow = [
-    'Federal Tax Deposits - Withheld Income and Employment Taxes',
-    'Corporate Income Tax Deposits'
+    'Taxes - Withheld Individual/FICA',
+    'Taxes - Corporate Income'
   ];
 
   catsToShow.forEach((cat, ci) => {
@@ -1182,8 +1233,8 @@ function buildChart5(data) {
 function buildChart6(dtsData) {
   destroyChart('chart6');
   clearError('chart6Wrap');
-  const catW = 'Federal Tax Deposits - Withheld Income and Employment Taxes';
-  const catNW = 'Individual Income and Employment Taxes, Not Withheld';
+  const catW = 'Taxes - Withheld Individual/FICA';
+  const catNW = 'Non-Withheld Individual/SECA';
 
   function monthlyAgg(cat) {
     const byMonth = {};
