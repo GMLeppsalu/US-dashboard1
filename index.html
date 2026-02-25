@@ -408,20 +408,25 @@ body {
         <canvas id="chart4"></canvas>
       </div>
     </div>
-    <!-- Chart 5 -->
+    <!-- Chart 5a -->
     <div class="card">
-      <div class="card-title">Chart 5: MTD Cumulative Deposits — Current vs Prior Year</div>
-      <div class="chart-container" id="chart5Wrap">
-        <div class="loading-overlay" id="chart5Loading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
-        <canvas id="chart5"></canvas>
+      <div class="card-title">Chart 5a: MTD Cumulative — Withheld Income & FICA</div>
+      <div class="chart-container" id="chart5aWrap">
+        <div class="loading-overlay" id="chart5aLoading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+        <canvas id="chart5a"></canvas>
       </div>
     </div>
   </div>
 
-  <!-- Section 3: Analytical -->
-  <div class="section-title">Section 3: Analytical Views</div>
-
   <div class="grid-2">
+    <!-- Chart 5b -->
+    <div class="card">
+      <div class="card-title">Chart 5b: MTD Cumulative — Corporate Income Tax</div>
+      <div class="chart-container" id="chart5bWrap">
+        <div class="loading-overlay" id="chart5bLoading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+        <canvas id="chart5b"></canvas>
+      </div>
+    </div>
     <!-- Chart 6 -->
     <div class="card">
       <div class="card-title">Chart 6: Individual Income — Withheld vs Non-Withheld (Monthly, YoY %)</div>
@@ -430,13 +435,17 @@ body {
         <canvas id="chart6"></canvas>
       </div>
     </div>
-    <!-- Chart 7 -->
-    <div class="card">
-      <div class="card-title">Chart 7: Corporate Tax Collections — Monthly Trend</div>
-      <div class="chart-container" id="chart7Wrap">
-        <div class="loading-overlay" id="chart7Loading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
-        <canvas id="chart7"></canvas>
-      </div>
+  </div>
+
+  <!-- Section 3: Analytical -->
+  <div class="section-title">Section 3: Analytical Views</div>
+
+  <!-- Chart 7 -->
+  <div class="card">
+    <div class="card-title">Chart 7: Corporate Tax Collections — Monthly Trend</div>
+    <div class="chart-container" id="chart7Wrap">
+      <div class="loading-overlay" id="chart7Loading"><div class="spinner"></div><div class="loading-text">Loading...</div></div>
+      <canvas id="chart7"></canvas>
     </div>
   </div>
 
@@ -544,6 +553,15 @@ function parseNum(v) {
   return isNaN(n) ? null : n;
 }
 
+// Pick the first non-null field value from a list of candidate field names
+function pickField(r, ...names) {
+  for (const name of names) {
+    const v = r[name];
+    if (v !== undefined && v !== null && v !== 'null' && v !== '') return v;
+  }
+  return null;
+}
+
 function yoyPct(cur, prior) {
   if (prior == null || prior === 0 || cur == null) return null;
   return ((cur - prior) / Math.abs(prior)) * 100;
@@ -638,12 +656,12 @@ async function fetchMTS() {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`MTS API error: ${resp.status}`);
   const json = await resp.json();
-  // Normalize field names — API may use "net_rcpt" or "gross_rcpt" variants
+  // Normalize field names — API uses "net_rcpt" variants; handle "null" strings
   let data = json.data.map(r => ({
     ...r,
-    current_month_rcpt_amt: r.current_month_rcpt_amt || r.current_month_net_rcpt_amt || r.current_month_gross_rcpt_amt,
-    current_fytd_rcpt_amt: r.current_fytd_rcpt_amt || r.current_fytd_net_rcpt_amt || r.current_fytd_gross_rcpt_amt,
-    prior_fytd_rcpt_amt: r.prior_fytd_rcpt_amt || r.prior_fytd_net_rcpt_amt || r.prior_fytd_gross_rcpt_amt,
+    current_month_rcpt_amt: pickField(r, 'current_month_rcpt_amt', 'current_month_net_rcpt_amt', 'current_month_gross_rcpt_amt'),
+    current_fytd_rcpt_amt: pickField(r, 'current_fytd_rcpt_amt', 'current_fytd_net_rcpt_amt', 'current_fytd_gross_rcpt_amt'),
+    prior_fytd_rcpt_amt: pickField(r, 'prior_fytd_rcpt_amt', 'prior_fytd_net_rcpt_amt', 'prior_fytd_gross_rcpt_amt'),
   }));
   data = data.filter(r => MTS_CATEGORIES.includes(r.classification_desc));
   data = combineSocialInsurance(data);
@@ -947,11 +965,11 @@ function buildSummaryTable(data) {
     const curFytd = parseNum(cur.current_fytd_rcpt_amt);
     const priorFytd = parseNum(cur.prior_fytd_rcpt_amt);
 
-    // Find prior year same month
+    // Find prior year same month (use parseInt to handle leading zeros)
     const priorRow = data.find(r =>
       r.classification_desc === cat &&
-      r.record_calendar_year == String(priorYear) &&
-      r.record_calendar_month == String(ld.getMonth() + 1)
+      parseInt(r.record_calendar_year) === priorYear &&
+      parseInt(r.record_calendar_month) === (ld.getMonth() + 1)
     );
     const priorMonthAmt = priorRow ? parseNum(priorRow.current_month_rcpt_amt) : null;
     const monthYoy = yoyPct(curMonthAmt, priorMonthAmt);
@@ -1133,25 +1151,17 @@ function buildChart4(data) {
   showLoading('chart4Loading', false);
 }
 
-// ===== CHART 5: MTD Cumulative =====
+// ===== CHART 5a/5b: MTD Cumulative (split by category) =====
 function buildChart5(data) {
-  destroyChart('chart5');
-  clearError('chart5Wrap');
-  // Current month and prior year same month
   const latestDate = data.reduce((max, r) => r.record_date > max ? r.record_date : max, '');
   const latest = new Date(latestDate);
   const curYear = latest.getFullYear();
   const curMonth = latest.getMonth() + 1;
 
-  const datasets = [];
-  const colorPairs = [['#3b82f6', '#3b82f666'], ['#f59e0b', '#f59e0b66']];
-  const catsToShow = [
-    'Taxes - Withheld Individual/FICA',
-    'Taxes - Corporate Income'
-  ];
+  function buildMTDChart(chartKey, wrapId, loadingId, canvasId, cat, color) {
+    destroyChart(chartKey);
+    clearError(wrapId);
 
-  catsToShow.forEach((cat, ci) => {
-    // Current year
     const curRows = data.filter(r =>
       r.transaction_catg === cat &&
       parseInt(r.record_calendar_year) === curYear &&
@@ -1163,7 +1173,6 @@ function buildChart5(data) {
       y: parseNum(r.transaction_mtd_amt)
     })).filter(p => p.y != null);
 
-    // Prior year
     const priorRows = data.filter(r =>
       r.transaction_catg === cat &&
       parseInt(r.record_calendar_year) === curYear - 1 &&
@@ -1176,57 +1185,65 @@ function buildChart5(data) {
     })).filter(p => p.y != null);
 
     const short = DTS_SHORT[cat];
-    datasets.push({
-      label: short + ' ' + curYear,
-      data: curPoints,
-      borderColor: colorPairs[ci][0],
-      borderWidth: 2,
-      pointRadius: 1,
-      tension: 0.2,
-      fill: false
-    });
-    datasets.push({
-      label: short + ' ' + (curYear - 1),
-      data: priorPoints,
-      borderColor: colorPairs[ci][1],
-      borderWidth: 2,
-      borderDash: [5, 5],
-      pointRadius: 1,
-      tension: 0.2,
-      fill: false
-    });
-  });
-
-  const ctx = document.getElementById('chart5').getContext('2d');
-  chartsMap['chart5'] = new Chart(ctx, {
-    type: 'line',
-    data: { datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: {
-          type: 'linear',
-          title: { display: true, text: 'Day of Month' },
-          min: 1, max: 31,
-          grid: { color: '#1e293b' }
-        },
-        y: {
-          title: { display: true, text: 'MTD ($M)' },
-          grid: { color: '#1e293b' }
-        }
+    const datasets = [
+      {
+        label: short + ' ' + curYear,
+        data: curPoints,
+        borderColor: color,
+        backgroundColor: color + '22',
+        borderWidth: 2,
+        pointRadius: 1,
+        tension: 0.2,
+        fill: true
       },
-      plugins: {
-        tooltip: {
-          callbacks: {
-            label: ctx => ctx.dataset.label + ': ' + fmtDollarM(ctx.parsed.y)
+      {
+        label: short + ' ' + (curYear - 1),
+        data: priorPoints,
+        borderColor: color + '88',
+        borderWidth: 2,
+        borderDash: [5, 5],
+        pointRadius: 1,
+        tension: 0.2,
+        fill: false
+      }
+    ];
+
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    chartsMap[chartKey] = new Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            type: 'linear',
+            title: { display: true, text: 'Day of Month' },
+            min: 1, max: 31,
+            grid: { color: '#1e293b' }
+          },
+          y: {
+            title: { display: true, text: 'MTD ($M)' },
+            grid: { color: '#1e293b' }
           }
         },
-        legend: { position: 'top', labels: { font: { size: 10 } } }
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: ctx => ctx.dataset.label + ': ' + fmtDollarM(ctx.parsed.y)
+            }
+          },
+          legend: { position: 'top', labels: { font: { size: 10 } } }
+        }
       }
-    }
-  });
-  showLoading('chart5Loading', false);
+    });
+    showLoading(loadingId, false);
+  }
+
+  buildMTDChart('chart5a', 'chart5aWrap', 'chart5aLoading', 'chart5a',
+    'Taxes - Withheld Individual/FICA', '#3b82f6');
+  buildMTDChart('chart5b', 'chart5bWrap', 'chart5bLoading', 'chart5b',
+    'Taxes - Corporate Income', '#f59e0b');
 }
 
 // ===== CHART 6: Withheld vs Non-Withheld =====
@@ -1456,9 +1473,10 @@ async function loadDTSCharts() {
     buildChart6(data);
   } catch (e) {
     console.error('DTS load error:', e);
-    ['chart4Wrap', 'chart5Wrap', 'chart6Wrap'].forEach(id => showError(id, 'Failed to load DTS data: ' + e.message));
+    ['chart4Wrap', 'chart5aWrap', 'chart5bWrap', 'chart6Wrap'].forEach(id => showError(id, 'Failed to load DTS data: ' + e.message));
     showLoading('chart4Loading', false);
-    showLoading('chart5Loading', false);
+    showLoading('chart5aLoading', false);
+    showLoading('chart5bLoading', false);
     showLoading('chart6Loading', false);
     document.getElementById('dtsCards').innerHTML = '<div class="error-msg" style="grid-column:1/-1;">Failed to load DTS data: ' + e.message + '</div>';
   }
@@ -1474,7 +1492,7 @@ async function refreshAll() {
   dtsCache = null;
 
   // Show all loaders
-  ['chart1Loading', 'chart2Loading', 'chart3Loading', 'chart4Loading', 'chart5Loading', 'chart6Loading', 'chart7Loading'].forEach(id => showLoading(id, true));
+  ['chart1Loading', 'chart2Loading', 'chart3Loading', 'chart4Loading', 'chart5aLoading', 'chart5bLoading', 'chart6Loading', 'chart7Loading'].forEach(id => showLoading(id, true));
   document.getElementById('summaryTableWrap').innerHTML = '<div class="loading-overlay" id="summaryTableLoading" style="position:relative;min-height:100px;"><div class="spinner"></div><div class="loading-text">Loading...</div></div>';
 
   await Promise.all([loadMTSCharts(), loadDTSCharts()]);
